@@ -229,13 +229,50 @@ def format_signal_message(data: dict) -> str:
         volume = float(data['volume'])
         message += f"• حجم التداول: {volume:,.0f}\n"
     
-    # إضافة Take Profit و Stop Loss إذا كانت موجودة
+    # إضافة إدارة المخاطر المتقدمة
     if action == 'BUY' and price > 0:
-        take_profit = price * 1.03  # +3%
-        stop_loss = price * 0.98    # -2%
         message += f"\n<b>🎯 إدارة المخاطر:</b>\n"
-        message += f"• Take Profit: {take_profit:.2f} ريال (+3%)\n"
-        message += f"• Stop Loss: {stop_loss:.2f} ريال (-2%)\n"
+        
+        # إذا كانت هناك أهداف مخصصة من TradingView
+        if data.get('target1') or data.get('target2') or data.get('target3'):
+            if data.get('entry'):
+                entry = float(data['entry'])
+                message += f"📍 Entry: {entry:.2f} ريال\n"
+            
+            if data.get('stop_loss'):
+                stop_loss = float(data['stop_loss'])
+                sl_pct = ((stop_loss - price) / price) * 100
+                message += f"🛡️ Stop Loss: {stop_loss:.2f} ريال ({sl_pct:+.1f}%)\n"
+            else:
+                stop_loss = price * 0.98
+                message += f"🛡️ Stop Loss: {stop_loss:.2f} ريال (-2%)\n"
+            
+            message += f"\n<b>🎯 الأهداف:</b>\n"
+            
+            if data.get('target1'):
+                target1 = float(data['target1'])
+                t1_pct = ((target1 - price) / price) * 100
+                message += f"• Target 1: {target1:.2f} ريال (+{t1_pct:.1f}%) - إغلاق 33%\n"
+            
+            if data.get('target2'):
+                target2 = float(data['target2'])
+                t2_pct = ((target2 - price) / price) * 100
+                message += f"• Target 2: {target2:.2f} ريال (+{t2_pct:.1f}%) - إغلاق 33%\n"
+            
+            if data.get('target3'):
+                target3 = float(data['target3'])
+                t3_pct = ((target3 - price) / price) * 100
+                message += f"• Target 3: {target3:.2f} ريال (+{t3_pct:.1f}%) - إغلاق الباقي\n"
+            
+            # إضافة معلومات Trailing Stop إذا كانت موجودة
+            if data.get('trailing_stop'):
+                message += f"\n⚡ <b>Trailing Stop:</b> مفعّل بعد Target 1\n"
+        else:
+            # الأهداف الافتراضية
+            take_profit = price * 1.03  # +3%
+            stop_loss = price * 0.98    # -2%
+            message += f"• Take Profit: {take_profit:.2f} ريال (+3%)\n"
+            message += f"• Stop Loss: {stop_loss:.2f} ريال (-2%)\n"
     
     # إضافة الرسالة المخصصة
     if data.get('message'):

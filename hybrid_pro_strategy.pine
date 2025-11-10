@@ -1,0 +1,405 @@
+//@version=5
+strategy("Hybrid Pro Strategy - استراتيجية هجينة احترافية", 
+         overlay=true, 
+         initial_capital=100000,
+         default_qty_type=strategy.percent_of_equity,
+         default_qty_value=10,
+         commission_type=strategy.commission.percent,
+         commission_value=0.15,
+         pyramiding=0)
+
+// =====================================
+// 🎯 إعدادات الاستراتيجية
+// =====================================
+
+// === Risk Management ===
+useMultipleTargets = input.bool(true, "استخدام أهداف متعددة", group="إدارة المخاطر")
+target1Pct = input.float(2.0, "الهدف الأول (%)", minval=0.5, maxval=10.0, group="إدارة المخاطر") / 100
+target2Pct = input.float(4.0, "الهدف الثاني (%)", minval=1.0, maxval=15.0, group="إدارة المخاطر") / 100
+target3Pct = input.float(6.0, "الهدف الثالث (%)", minval=2.0, maxval=20.0, group="إدارة المخاطر") / 100
+stopLossPct = input.float(2.0, "وقف الخسارة (%)", minval=0.5, maxval=5.0, group="إدارة المخاطر") / 100
+useTrailingStop = input.bool(true, "استخدام Trailing Stop", group="إدارة المخاطر")
+trailingStopPct = input.float(1.5, "Trailing Stop (%)", minval=0.5, maxval=5.0, group="إدارة المخاطر") / 100
+
+// === ATR for Position Sizing (Turtle Trading) ===
+atrLength = input.int(14, "ATR - الفترة", minval=1, group="Turtle Trading")
+atrMultiplier = input.float(2.0, "ATR - المضاعف", minval=0.5, maxval=5.0, group="Turtle Trading")
+
+// === Breakout Settings (Turtle Trading) ===
+breakoutLength = input.int(20, "Breakout - الفترة", minval=5, maxval=50, group="Turtle Trading")
+
+// === Mean Reversion Settings ===
+rsiLength = input.int(14, "RSI - الفترة", minval=1, group="Mean Reversion")
+rsiOversold = input.int(30, "RSI - تشبع بيعي", minval=10, maxval=40, group="Mean Reversion")
+rsiOverbought = input.int(70, "RSI - تشبع شرائي", minval=60, maxval=90, group="Mean Reversion")
+bbLength = input.int(20, "Bollinger Bands - الفترة", minval=1, group="Mean Reversion")
+bbMult = input.float(2.0, "Bollinger Bands - الانحراف", minval=0.5, maxval=5.0, group="Mean Reversion")
+
+// === Momentum Settings ===
+emaShort = input.int(20, "EMA - قصير", minval=1, group="Momentum")
+emaLong = input.int(50, "EMA - طويل", minval=1, group="Momentum")
+macdFast = input.int(12, "MACD - Fast", minval=1, group="Momentum")
+macdSlow = input.int(26, "MACD - Slow", minval=1, group="Momentum")
+macdSignal = input.int(9, "MACD - Signal", minval=1, group="Momentum")
+adxLength = input.int(14, "ADX - الفترة", minval=1, group="Momentum")
+adxThreshold = input.int(25, "ADX - الحد الأدنى", minval=10, maxval=50, group="Momentum")
+
+// === ICT Settings ===
+useOrderBlocks = input.bool(true, "استخدام Order Blocks", group="ICT")
+obLookback = input.int(10, "Order Blocks - Lookback", minval=5, maxval=50, group="ICT")
+useFVG = input.bool(true, "استخدام Fair Value Gaps", group="ICT")
+fvgThreshold = input.float(0.5, "FVG - الحد الأدنى (%)", minval=0.1, maxval=2.0, group="ICT") / 100
+
+// === Smart Money Settings ===
+useSupplyDemand = input.bool(true, "استخدام Supply/Demand Zones", group="Smart Money")
+sdLookback = input.int(20, "S/D Zones - Lookback", minval=10, maxval=100, group="Smart Money")
+sdStrength = input.int(3, "S/D Zones - القوة", minval=1, maxval=10, group="Smart Money")
+
+// === Signal Strength ===
+minSignals = input.int(3, "الحد الأدنى للإشارات الإيجابية", minval=2, maxval=5, group="قوة الإشارة")
+
+// =====================================
+// 📊 حساب المؤشرات
+// =====================================
+
+// === ATR (Turtle Trading) ===
+atr = ta.atr(atrLength)
+atrStop = atr * atrMultiplier
+
+// === Breakout (Turtle Trading) ===
+highestHigh = ta.highest(high, breakoutLength)
+lowestLow = ta.lowest(low, breakoutLength)
+breakoutBuy = close > highestHigh[1]
+breakoutSell = close < lowestLow[1]
+
+// === RSI (Mean Reversion) ===
+rsi = ta.rsi(close, rsiLength)
+rsiOversoldSignal = rsi < rsiOversold
+rsiOverboughtSignal = rsi > rsiOverbought
+
+// === Bollinger Bands (Mean Reversion) ===
+[bbMiddle, bbUpper, bbLower] = ta.bb(close, bbLength, bbMult)
+bbBuySignal = close <= bbLower
+bbSellSignal = close >= bbUpper
+bbMeanReversion = close < bbMiddle and rsi < 50
+
+// === EMA (Momentum) ===
+emaShortLine = ta.ema(close, emaShort)
+emaLongLine = ta.ema(close, emaLong)
+emaGoldenCross = ta.crossover(emaShortLine, emaLongLine)
+emaDeathCross = ta.crossunder(emaShortLine, emaLongLine)
+emaBullish = emaShortLine > emaLongLine
+emaBearish = emaShortLine < emaLongLine
+
+// === MACD (Momentum) ===
+[macdLine, signalLine, histLine] = ta.macd(close, macdFast, macdSlow, macdSignal)
+macdBullish = macdLine > signalLine
+macdBearish = macdLine < signalLine
+macdCrossUp = ta.crossover(macdLine, signalLine)
+macdCrossDown = ta.crossunder(macdLine, signalLine)
+
+// === ADX (Momentum) ===
+[diPlus, diMinus, adx] = ta.dmi(adxLength, adxLength)
+adxStrong = adx > adxThreshold
+trendUp = diPlus > diMinus
+trendDown = diMinus > diPlus
+
+// === Order Blocks (ICT) ===
+var float bullishOB = na
+var float bearishOB = na
+
+if useOrderBlocks
+    // Bullish Order Block: آخر شمعة هابطة قبل صعود قوي
+    if close[1] < open[1] and close > high[1] and close > open
+        bullishOB := low[1]
+    
+    // Bearish Order Block: آخر شمعة صاعدة قبل هبوط قوي
+    if close[1] > open[1] and close < low[1] and close < open
+        bearishOB := high[1]
+
+obBuySignal = useOrderBlocks and not na(bullishOB) and close > bullishOB and close < bullishOB * 1.02
+obSellSignal = useOrderBlocks and not na(bearishOB) and close < bearishOB and close > bearishOB * 0.98
+
+// === Fair Value Gaps (ICT) ===
+var float fvgBullish = na
+var float fvgBearish = na
+
+if useFVG
+    // Bullish FVG: فجوة بين low[0] و high[2]
+    if low[0] > high[2]
+        gapSize = (low[0] - high[2]) / high[2]
+        if gapSize > fvgThreshold
+            fvgBullish := (low[0] + high[2]) / 2
+    
+    // Bearish FVG: فجوة بين high[0] و low[2]
+    if high[0] < low[2]
+        gapSize = (low[2] - high[0]) / low[2]
+        if gapSize > fvgThreshold
+            fvgBearish := (high[0] + low[2]) / 2
+
+fvgBuySignal = useFVG and not na(fvgBullish) and close <= fvgBullish and close >= fvgBullish * 0.99
+fvgSellSignal = useFVG and not na(fvgBearish) and close >= fvgBearish and close <= fvgBearish * 1.01
+
+// === Supply/Demand Zones (Smart Money) ===
+var float demandZone = na
+var float supplyZone = na
+
+if useSupplyDemand
+    // Demand Zone: منطقة دعم قوية
+    lowestRecent = ta.lowest(low, sdLookback)
+    touchCount = 0
+    for i = 1 to sdLookback
+        if low[i] <= lowestRecent * 1.01 and low[i] >= lowestRecent * 0.99
+            touchCount := touchCount + 1
+    
+    if touchCount >= sdStrength
+        demandZone := lowestRecent
+    
+    // Supply Zone: منطقة مقاومة قوية
+    highestRecent = ta.highest(high, sdLookback)
+    touchCountSupply = 0
+    for i = 1 to sdLookback
+        if high[i] >= highestRecent * 0.99 and high[i] <= highestRecent * 1.01
+            touchCountSupply := touchCountSupply + 1
+    
+    if touchCountSupply >= sdStrength
+        supplyZone := highestRecent
+
+sdBuySignal = useSupplyDemand and not na(demandZone) and close <= demandZone * 1.02 and close >= demandZone * 0.98
+sdSellSignal = useSupplyDemand and not na(supplyZone) and close >= supplyZone * 0.98 and close <= supplyZone * 1.02
+
+// =====================================
+// 🎯 تجميع الإشارات
+// =====================================
+
+// === Buy Signals ===
+buySignalCount = 0
+
+// Turtle Trading
+if breakoutBuy
+    buySignalCount := buySignalCount + 1
+
+// Mean Reversion
+if rsiOversoldSignal and bbBuySignal
+    buySignalCount := buySignalCount + 1
+
+// Momentum
+if emaBullish and macdBullish and adxStrong and trendUp
+    buySignalCount := buySignalCount + 1
+
+// ICT
+if obBuySignal or fvgBuySignal
+    buySignalCount := buySignalCount + 1
+
+// Smart Money
+if sdBuySignal
+    buySignalCount := buySignalCount + 1
+
+// === Sell Signals ===
+sellSignalCount = 0
+
+// Turtle Trading
+if breakoutSell
+    sellSignalCount := sellSignalCount + 1
+
+// Mean Reversion
+if rsiOverboughtSignal and bbSellSignal
+    sellSignalCount := sellSignalCount + 1
+
+// Momentum
+if emaBearish and macdBearish and adxStrong and trendDown
+    sellSignalCount := sellSignalCount + 1
+
+// ICT
+if obSellSignal or fvgSellSignal
+    sellSignalCount := sellSignalCount + 1
+
+// Smart Money
+if sdSellSignal
+    sellSignalCount := sellSignalCount + 1
+
+// =====================================
+// 🚀 شروط الدخول
+// =====================================
+
+longCondition = buySignalCount >= minSignals and strategy.position_size == 0
+shortCondition = sellSignalCount >= minSignals and strategy.position_size > 0
+
+// =====================================
+// 🎯 إدارة المخاطر المتقدمة
+// =====================================
+
+var float entryPrice = na
+var float stopLossLevel = na
+var float target1Level = na
+var float target2Level = na
+var float target3Level = na
+var int target1Hit = 0
+var int target2Hit = 0
+
+if longCondition
+    entryPrice := close
+    stopLossLevel := close - atrStop
+    target1Level := close * (1 + target1Pct)
+    target2Level := close * (1 + target2Pct)
+    target3Level := close * (1 + target3Pct)
+    target1Hit := 0
+    target2Hit := 0
+
+// === Multiple Targets ===
+if strategy.position_size > 0 and useMultipleTargets
+    // Target 1: إغلاق 33% من الصفقة
+    if close >= target1Level and target1Hit == 0
+        strategy.close("Long", qty_percent=33, comment="Target 1 (+2%)")
+        target1Hit := 1
+        // تحريك Stop Loss إلى نقطة الدخول (Break Even)
+        stopLossLevel := entryPrice
+    
+    // Target 2: إغلاق 33% إضافية
+    if close >= target2Level and target2Hit == 0
+        strategy.close("Long", qty_percent=50, comment="Target 2 (+4%)")
+        target2Hit := 1
+        // تحريك Stop Loss إلى Target 1
+        stopLossLevel := target1Level
+    
+    // Target 3: إغلاق الباقي
+    if close >= target3Level
+        strategy.close("Long", comment="Target 3 (+6%)")
+
+// === Trailing Stop ===
+if strategy.position_size > 0 and useTrailingStop and target1Hit == 1
+    trailingStopLevel = close * (1 - trailingStopPct)
+    if trailingStopLevel > stopLossLevel
+        stopLossLevel := trailingStopLevel
+
+// === Stop Loss ===
+if strategy.position_size > 0
+    if close <= stopLossLevel
+        strategy.close("Long", comment="Stop Loss")
+
+// === Exit on Sell Signal ===
+if shortCondition
+    strategy.close("Long", comment="Sell Signal")
+
+// =====================================
+// 📈 تنفيذ الصفقات
+// =====================================
+
+if longCondition
+    strategy.entry("Long", strategy.long, comment="Buy - " + str.tostring(buySignalCount) + " signals")
+
+// =====================================
+// 🎨 رسم المؤشرات
+// =====================================
+
+// === EMA ===
+plot(emaShortLine, "EMA " + str.tostring(emaShort), color=color.blue, linewidth=2)
+plot(emaLongLine, "EMA " + str.tostring(emaLong), color=color.red, linewidth=2)
+
+// === Bollinger Bands ===
+p1 = plot(bbUpper, "BB Upper", color=color.gray, linewidth=1)
+p2 = plot(bbLower, "BB Lower", color=color.gray, linewidth=1)
+plot(bbMiddle, "BB Middle", color=color.orange, linewidth=1, style=plot.style_circles)
+fill(p1, p2, color=color.new(color.gray, 90))
+
+// === Breakout Levels ===
+plot(highestHigh, "Breakout High", color=color.new(color.green, 70), linewidth=1, style=plot.style_stepline)
+plot(lowestLow, "Breakout Low", color=color.new(color.red, 70), linewidth=1, style=plot.style_stepline)
+
+// === Order Blocks ===
+if useOrderBlocks and not na(bullishOB)
+    line.new(bar_index - obLookback, bullishOB, bar_index, bullishOB, 
+             color=color.new(color.green, 80), width=2, style=line.style_dashed)
+
+if useOrderBlocks and not na(bearishOB)
+    line.new(bar_index - obLookback, bearishOB, bar_index, bearishOB, 
+             color=color.new(color.red, 80), width=2, style=line.style_dashed)
+
+// === Supply/Demand Zones ===
+if useSupplyDemand and not na(demandZone)
+    box.new(bar_index - sdLookback, demandZone * 0.98, bar_index, demandZone * 1.02, 
+            border_color=color.new(color.green, 70), bgcolor=color.new(color.green, 90))
+
+if useSupplyDemand and not na(supplyZone)
+    box.new(bar_index - sdLookback, supplyZone * 0.98, bar_index, supplyZone * 1.02, 
+            border_color=color.new(color.red, 70), bgcolor=color.new(color.red, 90))
+
+// === Entry Levels ===
+if strategy.position_size > 0
+    line.new(bar_index[1], entryPrice, bar_index, entryPrice, 
+             color=color.blue, width=2, style=line.style_solid)
+    line.new(bar_index[1], stopLossLevel, bar_index, stopLossLevel, 
+             color=color.red, width=2, style=line.style_solid)
+    line.new(bar_index[1], target1Level, bar_index, target1Level, 
+             color=color.green, width=1, style=line.style_dashed)
+    line.new(bar_index[1], target2Level, bar_index, target2Level, 
+             color=color.green, width=1, style=line.style_dashed)
+    line.new(bar_index[1], target3Level, bar_index, target3Level, 
+             color=color.green, width=1, style=line.style_dashed)
+
+// =====================================
+// 📊 جدول المعلومات
+// =====================================
+
+var table infoTable = table.new(position.top_right, 2, 12, border_width=1)
+
+if barstate.islast
+    table.cell(infoTable, 0, 0, "الاستراتيجية", bgcolor=color.new(color.blue, 70), text_color=color.white)
+    table.cell(infoTable, 1, 0, "القيمة", bgcolor=color.new(color.blue, 70), text_color=color.white)
+    
+    table.cell(infoTable, 0, 1, "Turtle Trading", text_color=breakoutBuy ? color.green : color.gray)
+    table.cell(infoTable, 1, 1, breakoutBuy ? "✅ Breakout" : "⏸️", text_color=breakoutBuy ? color.green : color.gray)
+    
+    table.cell(infoTable, 0, 2, "Mean Reversion", text_color=rsiOversoldSignal and bbBuySignal ? color.green : color.gray)
+    table.cell(infoTable, 1, 2, "RSI: " + str.tostring(math.round(rsi, 1)), text_color=rsiOversoldSignal ? color.green : color.gray)
+    
+    table.cell(infoTable, 0, 3, "Momentum", text_color=emaBullish and macdBullish ? color.green : color.gray)
+    table.cell(infoTable, 1, 3, emaBullish ? "✅ Bullish" : "❌ Bearish", text_color=emaBullish ? color.green : color.red)
+    
+    table.cell(infoTable, 0, 4, "ICT", text_color=obBuySignal or fvgBuySignal ? color.green : color.gray)
+    table.cell(infoTable, 1, 4, obBuySignal ? "✅ OB" : fvgBuySignal ? "✅ FVG" : "⏸️", 
+               text_color=obBuySignal or fvgBuySignal ? color.green : color.gray)
+    
+    table.cell(infoTable, 0, 5, "Smart Money", text_color=sdBuySignal ? color.green : color.gray)
+    table.cell(infoTable, 1, 5, sdBuySignal ? "✅ Demand" : "⏸️", text_color=sdBuySignal ? color.green : color.gray)
+    
+    table.cell(infoTable, 0, 6, "إشارات الشراء", bgcolor=color.new(color.green, 80))
+    table.cell(infoTable, 1, 6, str.tostring(buySignalCount) + "/5", bgcolor=color.new(color.green, 80))
+    
+    table.cell(infoTable, 0, 7, "إشارات البيع", bgcolor=color.new(color.red, 80))
+    table.cell(infoTable, 1, 7, str.tostring(sellSignalCount) + "/5", bgcolor=color.new(color.red, 80))
+    
+    if strategy.position_size > 0
+        table.cell(infoTable, 0, 8, "Entry", bgcolor=color.new(color.blue, 80))
+        table.cell(infoTable, 1, 8, str.tostring(math.round(entryPrice, 2)), bgcolor=color.new(color.blue, 80))
+        
+        table.cell(infoTable, 0, 9, "Stop Loss", bgcolor=color.new(color.red, 80))
+        table.cell(infoTable, 1, 9, str.tostring(math.round(stopLossLevel, 2)), bgcolor=color.new(color.red, 80))
+        
+        table.cell(infoTable, 0, 10, "Targets", bgcolor=color.new(color.green, 80))
+        targetsText = str.tostring(math.round(target1Level, 2)) + " | " + 
+                      str.tostring(math.round(target2Level, 2)) + " | " + 
+                      str.tostring(math.round(target3Level, 2))
+        table.cell(infoTable, 1, 10, targetsText, bgcolor=color.new(color.green, 80))
+        
+        table.cell(infoTable, 0, 11, "Profit", bgcolor=color.new(color.purple, 80))
+        currentProfit = ((close - entryPrice) / entryPrice) * 100
+        table.cell(infoTable, 1, 11, str.tostring(math.round(currentProfit, 2)) + "%", 
+                   bgcolor=color.new(currentProfit > 0 ? color.green : color.red, 80))
+
+// =====================================
+// 🔔 Alerts
+// =====================================
+
+if longCondition
+    alert("BUY Signal: " + syminfo.ticker + " at " + str.tostring(close) + 
+          "\nSignals: " + str.tostring(buySignalCount) + "/5" +
+          "\nStrategies: Turtle(" + str.tostring(breakoutBuy) + "), Mean Reversion(" + str.tostring(rsiOversoldSignal and bbBuySignal) + "), Momentum(" + str.tostring(emaBullish and macdBullish) + "), ICT(" + str.tostring(obBuySignal or fvgBuySignal) + "), Smart Money(" + str.tostring(sdBuySignal) + ")" +
+          "\nEntry: " + str.tostring(close) +
+          "\nStop Loss: " + str.tostring(stopLossLevel) +
+          "\nTargets: " + str.tostring(target1Level) + " | " + str.tostring(target2Level) + " | " + str.tostring(target3Level), 
+          alert.freq_once_per_bar_close)
+
+if shortCondition or (strategy.position_size > 0 and close <= stopLossLevel)
+    alert("SELL Signal: " + syminfo.ticker + " at " + str.tostring(close), 
+          alert.freq_once_per_bar_close)

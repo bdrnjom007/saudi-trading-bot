@@ -27,6 +27,11 @@ TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '')
 WEBHOOK_SECRET = os.getenv('WEBHOOK_SECRET', 'your_secret_key')
 DATABASE_PATH = os.getenv('DATABASE_URL', 'sqlite:///trading_bot.db').replace('sqlite:///', '')
 
+# طباعة الإعدادات للتشخيص (إخفاء جزء من Token للأمان)
+logger.info(f"🔧 TELEGRAM_BOT_TOKEN: {'*' * 10 + TELEGRAM_BOT_TOKEN[-10:] if TELEGRAM_BOT_TOKEN else 'NOT SET'}")
+logger.info(f"🔧 TELEGRAM_CHAT_ID: {TELEGRAM_CHAT_ID if TELEGRAM_CHAT_ID else 'NOT SET'}")
+logger.info(f"🔧 WEBHOOK_SECRET: {'SET' if WEBHOOK_SECRET else 'NOT SET'}")
+
 # إنشاء قاعدة البيانات
 def init_database():
     """إنشاء جداول قاعدة البيانات"""

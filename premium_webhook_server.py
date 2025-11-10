@@ -180,7 +180,7 @@ def format_signal_message(data: dict) -> str:
     
     symbol = data.get('symbol', '')
     company_name = company_names.get(symbol, symbol)
-    action = data.get('action', 'ALERT')
+    action = data.get('action', 'ALERT').upper()
     price = float(data.get('price', 0))
     
     # تحديد الأيقونة والنص
@@ -207,6 +207,13 @@ def format_signal_message(data: dict) -> str:
 <b>📉 المؤشرات (Real-time):</b>
 """
     
+    # إضافة معلومات الاستراتيجية إذا كانت موجودة
+    if data.get('strategy'):
+        message += f"• <b>الاستراتيجية:</b> {data['strategy']}\n"
+    
+    if data.get('signals'):
+        message += f"• <b>إشارات إيجابية:</b> {data['signals']}\n"
+    
     # إضافة المؤشرات إذا كانت موجودة
     if data.get('rsi'):
         rsi = float(data['rsi'])
@@ -221,6 +228,14 @@ def format_signal_message(data: dict) -> str:
     if data.get('volume'):
         volume = float(data['volume'])
         message += f"• حجم التداول: {volume:,.0f}\n"
+    
+    # إضافة Take Profit و Stop Loss إذا كانت موجودة
+    if action == 'BUY' and price > 0:
+        take_profit = price * 1.03  # +3%
+        stop_loss = price * 0.98    # -2%
+        message += f"\n<b>🎯 إدارة المخاطر:</b>\n"
+        message += f"• Take Profit: {take_profit:.2f} ريال (+3%)\n"
+        message += f"• Stop Loss: {stop_loss:.2f} ريال (-2%)\n"
     
     # إضافة الرسالة المخصصة
     if data.get('message'):
